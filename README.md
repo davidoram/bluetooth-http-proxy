@@ -2,6 +2,14 @@
 
 Bluetooth low energy HTTP Proxy Service (HPS)
 
+To compile:
+
+```
+GOOS=linux GOARCH=arm64 go build -o btserver *.go
+GOOS=linux GOARCH=arm64 go build -o btclient client/*.go
+```
+
+
 
 Test using `https://github.dev/go-ble/ble`
 

@@ -48,7 +48,7 @@ func (svrCtx *ServerContext) NewControlChar() *ble.Characteristic {
 						log.Printf("control: Failed to notify : %s", err)
 						return
 					}
-
+					// TODO return body + headers
 				}
 			}
 		}
