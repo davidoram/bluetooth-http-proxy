@@ -7,7 +7,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/davidoram/bluetool-http-proxy/hps"
 	"github.com/davidoram/bluetooth-http-proxy/hps"
 	"github.com/pkg/errors"
 
@@ -25,15 +24,17 @@ func main() {
 
 	d, err := dev.NewDevice(*device)
 	if err != nil {
-		log.Fatalf("can't new device : %s", err)
+		log.Fatalf("Can't new device, maybe permissions? : %s", err)
 	}
 	ble.SetDefaultDevice(d)
 
-	req := Request{}
+	svr := ServerContext{responseChannel: make(chan bool, 1)}
 
 	testSvc := ble.NewService(hps.HpsServiceID)
-	testSvc.AddCharacteristic(req.NewURIChar())
-	// testSvc.AddCharacteristic(lib.NewEchoChar())
+	log.Printf("Service: %s", hps.HpsServiceID.String())
+	testSvc.AddCharacteristic(svr.NewURIChar())
+	testSvc.AddCharacteristic(svr.NewControlChar())
+	testSvc.AddCharacteristic(svr.NewHeadersChar())
 
 	if err := ble.AddService(testSvc); err != nil {
 		log.Fatalf("can't add service: %s", err)
@@ -42,7 +43,7 @@ func main() {
 	// Advertise for specified durantion, or until interrupted by user.
 	fmt.Printf("Advertising for %s...\n", *du)
 	ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), *du))
-	chkErr(ble.AdvertiseNameAndServices(ctx, "Gopher", testSvc.UUID))
+	chkErr(ble.AdvertiseNameAndServices(ctx, hps.DeviceName, testSvc.UUID))
 }
 
 func chkErr(err error) {

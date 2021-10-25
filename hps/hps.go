@@ -5,19 +5,35 @@ import "github.com/go-ble/ble"
 // Private 128-bit UUIDs, which avoids the base of pre-defined 16/32-bits UUIDS
 // xxxxxxxx-0000-1000-8000-00805F9B34FB [Vol 3, Part B, 2.5.1].
 var (
-	TestSvcUUID   = ble.MustParse("00010000-0001-1000-8000-00805F9B34FB")
-	CountCharUUID = ble.MustParse("00010000-0002-1000-8000-00805F9B34FB")
-	EchoCharUUID  = ble.MustParse("00020000-0002-1000-8000-00805F9B34FB")
+	DeviceName = "davidoram/HPS"
+
+	// TestSvcUUID   = ble.MustParse("00010000-0001-1000-8000-00805F9B34FB")
+	// CountCharUUID = ble.MustParse("00010000-0002-1000-8000-00805F9B34FB")
+	// EchoCharUUID  = ble.MustParse("00020000-0002-1000-8000-00805F9B34FB")
 
 	HpsServiceID = ble.MustParse("0136bd82-ba81-48c6-b608-df7aa274338a")
 
-	URIUUID          = ble.MustParse("0x2AB6")
-	ControlPointUUID = ble.MustParse("0x2ABA")
+	URIUUID          = ble.UUID16(0x2AB6)
+	ControlPointUUID = ble.UUID16(0x2ABA)
+	HTTPHeadersID    = ble.UUID16(0x2AB7)
+	HTTPEntityBodyID = ble.UUID16(0x2AB9)
+)
+
+// Supported statuses for GATT characteristic read/write operations.
+// These correspond to att constants in the BLE spec
+const (
+	StatusSuccess         = 0
+	StatusInvalidOffset   = 1
+	StatusUnexpectedError = 2
+
+	//BodyMaxOctets is max buffer size of the HTTP Body,
+	// otherwise the server will report BodyTruncated
+	BodyMaxOctets int = 512
 )
 
 // const (
 // 	PeripheralID = "b4a77f05-2524-4330-bcbb-5aafd2a9329b"
-// 	DeviceName   = "davidoram/HPS"
+//
 
 // 	// From https://btprodspecificationrefs.blob.core.windows.net/assigned-values/16-bit%20UUID%20Numbers%20Document.pdf
 // 	// HTTPURIID          = 0x2AB6
