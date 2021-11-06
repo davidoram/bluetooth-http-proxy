@@ -19,6 +19,8 @@ var (
 	DisconnectedError      = errors.New("Disconnected")
 	ResponseTimeoutError   = errors.New("Response timeout")
 
+	FindServerError = errors.New("HPS Server not found")
+
 	FindURIChrError     = errors.New("Missing URI characterstic")
 	FindHeadersChrError = errors.New("Missing Headers characterstic")
 	FindBodyChrError    = errors.New("Missing Body characterstic")
@@ -41,11 +43,9 @@ type Client struct {
 	response        *Response
 	lastError       error
 
-	foundServer bool
-	device      ble.Device
-	bleClient   ble.Client
-
-	// uriChr, hdrsChr, bodyChr, controlChr, statusChr *gatt.Characteristic
+	addr      ble.Addr
+	device    ble.Device
+	bleClient ble.Client
 
 	done chan bool
 }
@@ -63,17 +63,19 @@ func MakeClient(deviceName string) *Client {
 		c.DeviceName = DeviceName
 	}
 	c.ConnectTimeout, _ = time.ParseDuration("5s")
-	c.ResponseTimeout, _ = time.ParseDuration("5s")
+	c.ResponseTimeout, _ = time.ParseDuration("10s")
 	return &c
 }
 
 func (client *Client) filterByName(a ble.Advertisement) bool {
 	// Default to search device with name specified by user
 	match := strings.ToUpper(a.LocalName()) == strings.ToUpper(client.DeviceName)
-	log.Printf("filterByName %s == %s match: %t", a.LocalName(), client.DeviceName, match)
+	log.Printf("filterByName '%s' == '%s' match: %t", a.LocalName(), client.DeviceName, match)
 	return match
 }
 func (client *Client) advHandler(a ble.Advertisement) {
+	log.Printf("advHandler %s %s", a.LocalName(), a.Addr().String())
+	client.addr = a.Addr()
 }
 
 func (client *Client) connect() error {
@@ -85,12 +87,8 @@ func (client *Client) connect() error {
 	ble.SetDefaultDevice(d)
 
 	client.bleClient = nil
+
 	ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), client.ConnectTimeout))
-	client.lastError = ble.Scan(ctx, false, client.advHandler, client.filterByName)
-	if client.lastError == nil {
-		log.Printf("Error scanning: %v", client.lastError)
-		return client.lastError
-	}
 	client.bleClient, client.lastError = ble.Connect(ctx, client.filterByName)
 	if client.lastError == nil {
 		// Function to automatically cleanup on disconnect
@@ -150,8 +148,13 @@ func (client *Client) Do(uri, body, method string, headers ArrayStr) (Response, 
 		client.lastError = FindURIChrError
 		return *client.response, client.lastError
 	}
-	uriChr.SetValue([]byte(client.uri))
-	log.Printf("Set URI ok")
+	log.Printf("client.lastError %v", client.lastError)
+	client.lastError = client.bleClient.WriteCharacteristic(uriChr, []byte(client.uri), true)
+	if client.lastError != nil {
+		log.Printf("Error setting URI")
+		return *client.response, client.lastError
+	}
+	log.Printf("Set URI '%s' ok", client.uri)
 
 	// Send Headers
 	hdrChr := p.FindCharacteristic(ble.NewCharacteristic(HTTPHeadersID))
@@ -159,7 +162,11 @@ func (client *Client) Do(uri, body, method string, headers ArrayStr) (Response, 
 		client.lastError = FindHeadersChrError
 		return *client.response, client.lastError
 	}
-	hdrChr.SetValue([]byte(client.headers.String()))
+	client.lastError = client.bleClient.WriteCharacteristic(hdrChr, []byte(client.headers.String()), true)
+	if client.lastError != nil {
+		log.Printf("Error setting Headers")
+		return *client.response, client.lastError
+	}
 	log.Printf("Set Headers ok")
 
 	// Send Body
@@ -168,7 +175,11 @@ func (client *Client) Do(uri, body, method string, headers ArrayStr) (Response, 
 		client.lastError = FindBodyChrError
 		return *client.response, client.lastError
 	}
-	bodyChr.SetValue([]byte(client.body))
+	client.lastError = client.bleClient.WriteCharacteristic(bodyChr, []byte(client.body), true)
+	if client.lastError != nil {
+		log.Printf("Error setting Body")
+		return *client.response, client.lastError
+	}
 	log.Printf("Set Body ok")
 
 	// Send control point (eg: GET/PUT/POST/... + HTTP/HTTPS)
@@ -185,9 +196,17 @@ func (client *Client) Do(uri, body, method string, headers ArrayStr) (Response, 
 	}
 
 	// Add a handler to receive notifications
-	client.bleClient.Subscribe(controlChr, true, client.controlHandler)
+	client.lastError = client.bleClient.Subscribe(controlChr, true, client.controlHandler)
+	if client.lastError != nil {
+		log.Printf("Error subscribing to Control point")
+		return *client.response, client.lastError
+	}
 
-	controlChr.SetValue([]byte{cpBuf})
+	client.lastError = client.bleClient.WriteCharacteristic(controlChr, []byte{cpBuf}, true)
+	if client.lastError != nil {
+		log.Printf("Error setting Control point")
+		return *client.response, client.lastError
+	}
 	log.Printf("Set Control point ok")
 
 	// Wait for response, or timeout
@@ -201,215 +220,3 @@ func (client *Client) Do(uri, body, method string, headers ArrayStr) (Response, 
 
 	return *client.response, client.lastError
 }
-
-// func (client *Client) scanPeriodically(d gatt.Device) {
-// 	log.Printf("start periodic scan")
-
-// 	// Create a new context
-// 	ctx := context.Background()
-// 	// Create a new context, with its cancellation function
-// 	// from the original context
-// 	ctx, _ = context.WithTimeout(ctx, client.ConnectTimeout)
-
-// 	timeout := false
-// 	for !client.foundServer && !timeout {
-// 		select {
-// 		case <-ctx.Done():
-// 			log.Printf("Connection timeout")
-// 			timeout = true
-// 			client.lastError = ConnectionTimeoutError
-// 			client.done <- false
-// 		default:
-// 			d.Scan([]gatt.UUID{}, false)
-// 			time.Sleep(time.Millisecond * 100)
-// 		}
-// 	}
-// 	log.Printf("stop periodic scan")
-// }
-
-// func (client *Client) onPeriphDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) {
-// 	if p.Name() != client.DeviceName {
-// 		log.Printf("Skip peripheral_id: %s, name: %s", p.ID(), p.Name())
-// 		return
-// 	}
-// 	client.foundServer = true
-
-// 	// Stop scanning once we've got the peripheral we're looking for.
-// 	log.Printf("Found HPS server")
-// 	p.Device().StopScanning()
-// 	p.Device().Connect(p)
-// }
-
-// func (client *Client) onPeriphConnected(p gatt.Peripheral, err error) {
-// 	log.Printf("connected")
-
-// 	if client.lastError = p.SetMTU(500); client.lastError != nil {
-// 		log.Printf("Error setting MTU, err: %v", client.lastError)
-// 		return
-// 	}
-
-// 	// Discovery services
-// 	var ss []*gatt.Service
-// 	ss, client.lastError = p.DiscoverServices(nil)
-// 	if client.lastError != nil {
-// 		log.Printf("Error Discover services, err: %v", client.lastError)
-// 		return
-// 	}
-
-// 	for _, s := range ss {
-// 		if s.UUID().Equal(gatt.MustParseUUID(HpsServiceID)) {
-// 			client.hpsService = s
-// 			err := client.parseService(p)
-// 			if err != nil {
-// 				log.Printf("Warning Parsing service, err: %v", err)
-// 				continue
-// 			}
-// 			client.lastError = client.callService(p)
-// 			if client.lastError != nil {
-// 				log.Printf("Error Calling service, err: %v", client.lastError)
-// 			}
-// 			break
-// 		}
-// 	}
-// }
-
-// func (client *Client) onPeriphDisconnected(p gatt.Peripheral, err error) {
-// 	log.Printf("disconnected")
-// 	client.done <- false
-// }
-
-// func (client *Client) parseService(p gatt.Peripheral) error {
-// 	log.Printf("parse service")
-
-// 	// Discovery characteristics
-// 	var cs []*gatt.Characteristic
-// 	cs, client.lastError = p.DiscoverCharacteristics(nil, client.hpsService)
-// 	if client.lastError != nil {
-// 		return client.lastError
-// 	}
-// 	for _, c := range cs {
-// 		// log.Printf("discovered characteristic name: %s", c.Name())
-// 		switch c.UUID().String() {
-// 		case gatt.UUID16(HTTPURIID).String():
-// 			client.uriChr = c
-// 		case gatt.UUID16(HTTPHeadersID).String():
-// 			client.hdrsChr = c
-// 		case gatt.UUID16(HTTPEntityBodyID).String():
-// 			client.bodyChr = c
-// 		case gatt.UUID16(HTTPControlPointID).String():
-// 			client.controlChr = c
-// 		case gatt.UUID16(HTTPStatusCodeID).String():
-// 			client.statusChr = c
-// 		}
-
-// 		// Discovery descriptors
-// 		ds, err := p.DiscoverDescriptors(nil, c)
-// 		if err != nil {
-// 			log.Printf("Warn discover descriptors, err: %v", err)
-// 			continue
-// 		}
-
-// 		for _, d := range ds {
-// 			// Read descriptor (could fail, if it's not readable)
-// 			_, err := p.ReadDescriptor(d)
-// 			if err != nil {
-// 				log.Printf("Warn reading descriptor: %s, err: %v", d.Name(), err)
-// 				continue
-// 			}
-// 		}
-
-// 		// Subscribe the characteristic, if possible.
-// 		if (c.Properties() & (gatt.CharNotify | gatt.CharIndicate)) != 0 {
-// 			f := func(c *gatt.Characteristic, b []byte, err error) {
-// 				if c.UUID().Equal(gatt.UUID16(HTTPStatusCodeID)) {
-// 					var ns NotifyStatus
-// 					ns, client.lastError = DecodeNotifyStatus(b)
-// 					if client.lastError != nil {
-// 						log.Printf("Error decoding notify status err: %v", client.lastError)
-// 						return
-// 					}
-// 					log.Printf("got headers?       %t", ns.HeadersReceived)
-// 					log.Printf("headers truncated? %t", ns.HeadersTruncated)
-// 					log.Printf("body received?     %t", ns.BodyReceived)
-// 					log.Printf("body truncated?    %t", ns.BodyTruncated)
-// 					log.Printf("status:  %d", ns.StatusCode)
-// 					client.response = &Response{NotifyStatus: ns}
-// 					client.responseChannel <- true
-// 				}
-// 			}
-// 			if client.lastError = p.SetNotifyValue(c, f); client.lastError != nil {
-// 				log.Printf("Error subscribing to notifications, err: %v", client.lastError)
-// 				continue
-// 			}
-// 		}
-
-// 	}
-// 	return nil
-// }
-
-// func (client *Client) callService(p gatt.Peripheral) error {
-// 	defer p.Device().CancelConnection(p)
-
-// 	log.Printf("call service")
-
-// 	urlStr := fmt.Sprintf("%s%s", client.u.Host, client.u.EscapedPath())
-// 	log.Printf("write method + uri: %s %s", client.method, client.u.String())
-// 	client.lastError = p.WriteCharacteristic(client.uriChr, []byte(urlStr), true)
-// 	if client.lastError != nil {
-// 		return client.lastError
-// 	}
-
-// 	log.Printf("write headers: %v", client.headers)
-// 	client.lastError = p.WriteCharacteristic(client.hdrsChr, []byte(client.headers.String()), true)
-// 	if client.lastError != nil {
-// 		return client.lastError
-// 	}
-
-// 	log.Printf("write body: %s", client.body)
-// 	client.lastError = p.WriteCharacteristic(client.bodyChr, []byte(client.body), true)
-// 	if client.lastError != nil {
-// 		return client.lastError
-// 	}
-
-// 	var code uint8
-// 	code, client.lastError = EncodeMethodScheme(client.method, client.u.Scheme)
-// 	if client.lastError != nil {
-// 		return client.lastError
-// 	}
-// 	log.Printf("write control: %d", code)
-// 	client.lastError = p.WriteCharacteristic(client.controlChr, []byte{code}, false)
-// 	if client.lastError != nil {
-// 		return client.lastError
-// 	}
-
-// 	log.Printf("waiting for notification, timeout after %v", client.ResponseTimeout)
-// 	time.AfterFunc(client.ResponseTimeout, func() {
-// 		log.Printf("timeout expired, no notification received")
-// 		client.responseChannel <- false
-// 	})
-// 	gotResponse := <-client.responseChannel
-// 	if gotResponse {
-// 		client.response.Body, client.lastError = p.ReadCharacteristic(client.bodyChr)
-// 		if client.lastError != nil {
-// 			return client.lastError
-// 		}
-// 		log.Printf("body:    %s", string(client.response.Body))
-
-// 		client.response.Headers, client.lastError = p.ReadCharacteristic(client.hdrsChr)
-// 		if client.lastError != nil {
-// 			return client.lastError
-// 		}
-// 		log.Printf("headers: %v", formatHeaders(client.response.Headers))
-
-// 		// all done no errors!
-// 		client.lastError = nil
-// 		client.done <- true
-// 	}
-// 	return nil
-// }
-
-// func formatHeaders(b []byte) []string {
-// 	s := string(b)
-// 	sa := strings.Split(s, "\n")
-// 	return sa
-// }

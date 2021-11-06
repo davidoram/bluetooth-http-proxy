@@ -12,7 +12,7 @@ import (
 )
 
 func (svrCtx *ServerContext) ProxyRequest() error {
-	log.Printf("ProxyRequest")
+	log.Printf("ProxyRequest %s %s://%s", svrCtx.Request.Method, svrCtx.Request.Scheme, svrCtx.Request.URI)
 	// Alloc space for the response, and a channel for response comms
 	svrCtx.Response = &hps.Response{}
 

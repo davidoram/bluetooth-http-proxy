@@ -10,11 +10,11 @@ import (
 // NewURIChar ...
 func (svrCtx *ServerContext) NewURIChar() *ble.Characteristic {
 	c := ble.NewCharacteristic(hps.URIUUID)
-
-	c.HandleWrite(ble.WriteHandlerFunc(func(req ble.Request, rsp ble.ResponseWriter) {
-		log.Printf("URI: Wrote %s", string(req.Data()))
-		svrCtx.Request.URI = string(req.Data())
-	}))
-
+	c.HandleWrite(ble.WriteHandlerFunc(svrCtx.writeUri))
 	return c
+}
+
+func (svrCtx *ServerContext) writeUri(req ble.Request, rsp ble.ResponseWriter) {
+	log.Printf("writeUri: %s", string(req.Data()))
+	svrCtx.Request.URI = string(req.Data())
 }

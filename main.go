@@ -30,20 +30,21 @@ func main() {
 
 	svr := ServerContext{responseChannel: make(chan bool, 1)}
 
-	testSvc := ble.NewService(hps.HpsServiceID)
+	hpsService := ble.NewService(hps.HpsServiceID)
 	log.Printf("Service: %s", hps.HpsServiceID.String())
-	testSvc.AddCharacteristic(svr.NewURIChar())
-	testSvc.AddCharacteristic(svr.NewControlChar())
-	testSvc.AddCharacteristic(svr.NewHeadersChar())
+	hpsService.AddCharacteristic(svr.NewURIChar())
+	hpsService.AddCharacteristic(svr.NewControlChar())
+	hpsService.AddCharacteristic(svr.NewHeadersChar())
+	hpsService.AddCharacteristic(svr.NewBodyChar())
 
-	if err := ble.AddService(testSvc); err != nil {
+	if err := ble.AddService(hpsService); err != nil {
 		log.Fatalf("can't add service: %s", err)
 	}
 
 	// Advertise for specified durantion, or until interrupted by user.
 	fmt.Printf("Advertising for %s...\n", *du)
 	ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), *du))
-	chkErr(ble.AdvertiseNameAndServices(ctx, hps.DeviceName, testSvc.UUID))
+	chkErr(ble.AdvertiseNameAndServices(ctx, hps.DeviceName, hpsService.UUID))
 }
 
 func chkErr(err error) {
