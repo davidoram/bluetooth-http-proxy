@@ -1,4 +1,4 @@
-# bluetooth-http-proxy
+# bluetooth-http-proxy - NOT WORKING
 
 Bluetooth low energy HTTP Proxy Service (HPS)
 
